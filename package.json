@@ -1,0 +1,40 @@
+{
+  "name": "feature-gates-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "npm run build -w @feature-gates/core && npm run build -w @feature-gates/testing && npm run build -w @feature-gates/harness && npm run build -w @feature-gates/firebase && npm run build -w @feature-gates/react && npm run build -w @feature-gates/angular",
+    "test": "vitest run",
+    "check": "npm run build && npm run typecheck && npm run typecheck:examples && npm test",
+    "typecheck:examples": "ngc -p examples/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@angular/common": "20.3.33",
+    "@angular/compiler": "20.3.33",
+    "@angular/compiler-cli": "20.3.33",
+    "@angular/core": "20.3.33",
+    "@angular/platform-browser": "20.3.33",
+    "@angular/platform-browser-dynamic": "20.3.33",
+    "@angular/router": "20.3.33",
+    "@harnessio/ff-javascript-client-sdk": "1.32.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "firebase": "13.0.0",
+    "jsdom": "26.1.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "rxjs": "7.8.2",
+    "typescript": "5.9.3",
+    "vite": "^8.3.2",
+    "vitest": "5.0.3"
+  }
+}
