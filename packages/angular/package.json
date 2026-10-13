@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "build": "ngc -p tsconfig.json"
+    "build": "node ../../node_modules/@angular/compiler-cli/bundles/src/bin/ngc.js -p tsconfig.json"
   },
   "license": "UNLICENSED",
   "peerDependencies": {

@@ -5,7 +5,7 @@ export interface FeatureDefinition {
   readonly removeBy?: string;
 }
 export type FeatureCatalog = Readonly<Record<string, FeatureDefinition>>;
-export function defineFeatures<const C extends FeatureCatalog>(catalog: C): C { return catalog; }
+export function defineFeatures<C extends FeatureCatalog>(catalog: C): C { return catalog; }
 export interface EvaluationContext {
   readonly targetId: string;
   readonly attributes?: Readonly<Record<string, string | number | boolean>>;
@@ -70,6 +70,7 @@ function normalizeContext(context: EvaluationContext): EvaluationContext {
 /** Own one instance in the application shell. Reads and subscriptions never issue network requests. */
 export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Extract<keyof C, string>> {
   readonly catalog: C;
+  private readonly firstFeature: Extract<keyof C, string>;
   private readonly states = new Map<string, FeatureDecision>();
   private readonly listeners = new Map<string, Set<() => void>>();
   private readonly waiters = new Set<Waiter>();
@@ -95,19 +96,21 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
     const keys = new Set<string>();
     for (const [name, definition] of Object.entries(options.catalog)) {
       if (!name || !definition.providerKey?.trim() || typeof definition.fallback !== 'boolean') throw new Error('Invalid feature definition');
-      if (keys.has(definition.providerKey)) throw new Error('Duplicate provider key: ' + definition.providerKey);
+      if (keys.has(definition.providerKey)) throw new Error(`Duplicate provider key: ${definition.providerKey}`);
       keys.add(definition.providerKey);
       Object.defineProperty(catalog, name, { value: Object.freeze({ ...definition }), enumerable: true });
       this.states.set(name, Object.freeze({ enabled: definition.fallback, status: 'pending', source: 'fallback', reason: 'initializing', revision: 0, contextRevision: 0 }));
     }
-    if (!keys.size) throw new Error('At least one feature is required');
+    const [firstFeature] = Object.keys(catalog);
+    if (firstFeature === undefined) throw new Error('At least one feature is required');
+    this.firstFeature = firstFeature as Extract<keyof C, string>;
     this.catalog = Object.freeze(catalog) as C;
   }
 
   getSnapshot(feature: Extract<keyof C, string>): FeatureDecision {
     const state = this.states.get(feature);
     if (state) return state;
-    if (this.options.strictUnknownFeatures !== false) throw new Error('Unknown feature: ' + feature);
+    if (this.options.strictUnknownFeatures !== false) throw new Error(`Unknown feature: ${feature}`);
     let unknown = this.unknowns.get(feature);
     if (!unknown) {
       unknown = Object.freeze({ enabled: false, status: 'degraded', source: 'fallback', reason: 'unknown', revision: 0, contextRevision: 0 });
@@ -119,7 +122,7 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
 
   subscribe(feature: Extract<keyof C, string>, listener: () => void): () => void {
     this.getSnapshot(feature);
-    if (this.disposed) return () => {};
+    if (this.disposed) return () => undefined;
     let listeners = this.listeners.get(feature);
     if (!listeners) { listeners = new Set(); this.listeners.set(feature, listeners); }
     listeners.add(listener);
@@ -175,10 +178,9 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
     this.timer = setTimeout(() => {
       if (generation === this.generation && !this.disposed) this.fallback('timeout');
     }, this.timeoutMs);
-    const firstFeature = Object.keys(this.catalog)[0]! as Extract<keyof C, string>;
-    const startup = this.whenSettled(firstFeature).then(() => {});
+    const startup = this.whenSettled(this.firstFeature).then(() => undefined);
     // Mark the internal promise handled even when callers choose not to await start().
-    void startup.catch(() => {});
+    startup.catch(() => undefined);
     this.startup = startup;
     this.queue = this.queue.then(async () => {
       await this.closeSession();
@@ -205,13 +207,13 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
     // and close any session it returns later without ever publishing it.
     return new Promise((resolve, reject) => {
       let finished = false;
-      const abort = () => { if (!finished) { finished = true; resolve(undefined); } };
+      const resolveConnection = (session?: ProviderSession) => { finished = true; resolve(session); };
+      const abort = () => { if (!finished) resolveConnection(); };
       signal.addEventListener('abort', abort, { once: true });
       Promise.resolve().then(() => signal.aborted ? undefined : this.options.provider.connect(context, signal)).then(session => {
         signal.removeEventListener('abort', abort);
-        if (finished || signal.aborted) { if (session) void this.close(session); return; }
-        finished = true;
-        resolve(session);
+        if (finished || signal.aborted) { if (session) this.close(session); return; }
+        resolveConnection(session);
       }, error => {
         signal.removeEventListener('abort', abort);
         if (!finished) { finished = true; reject(error); }
@@ -221,10 +223,12 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
   }
 
   private refresh(): void {
+    const session = this.session;
+    if (!session) { this.fallback('unavailable'); return; }
     const next: Record<string, DecisionValue> = Object.create(null) as Record<string, DecisionValue>;
     for (const [key, def] of Object.entries(this.catalog)) {
       let evaluation: ProviderEvaluation;
-      try { evaluation = this.session!.evaluate(def.providerKey, def.fallback); }
+      try { evaluation = session.evaluate(def.providerKey, def.fallback); }
       catch { evaluation = { kind: 'unavailable', reason: 'unavailable' }; }
       next[key] = evaluation.kind === 'value' && typeof evaluation.value === 'boolean'
         ? { enabled: evaluation.value, status: evaluation.source === 'cache' ? 'degraded' : 'ready', source: evaluation.source }
@@ -240,22 +244,28 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
   private publish(values: Record<string, DecisionValue>): void {
     const changed: string[] = [];
     for (const [key, value] of Object.entries(values)) {
-      const previous = this.states.get(key)!;
+      const previous = this.requireRegisteredState(key);
       if (previous.contextRevision === this.generation && previous.enabled === value.enabled && previous.status === value.status && previous.source === value.source && previous.reason === value.reason) continue;
       this.states.set(key, Object.freeze({ ...value, revision: ++this.revision, contextRevision: this.generation }));
       changed.push(key);
     }
     for (const waiter of [...this.waiters]) {
-      const state = this.states.get(waiter.feature)!;
+      const state = this.requireRegisteredState(waiter.feature);
       if (state.status !== 'pending') { this.waiters.delete(waiter); waiter.resolve(state); }
     }
     for (const key of changed) {
-      const state = this.states.get(key)!;
+      const state = this.requireRegisteredState(key);
       if (state.status === 'degraded' && state.source === 'fallback') this.diagnostic({ code: 'fallback', feature: key, ...(state.reason ? { reason: state.reason } : {}) });
       for (const listener of [...(this.listeners.get(key) ?? [])]) {
         try { listener(); } catch { this.diagnostic({ code: 'listener-error', feature: key }); }
       }
     }
+  }
+
+  private requireRegisteredState(feature: string): FeatureDecision {
+    const state = this.states.get(feature);
+    if (!state) throw new Error(`Feature state is not registered: ${feature}`);
+    return state;
   }
 
   private rejectWaiters(error: Error): void { for (const waiter of this.waiters) waiter.reject(error); this.waiters.clear(); }
@@ -273,4 +283,4 @@ export class FeatureClient<C extends FeatureCatalog> implements FeatureReader<Ex
   private diagnostic(diagnostic: Diagnostic): void { try { this.options.onDiagnostic?.(diagnostic); } catch { /* Diagnostics must not break release decisions. */ } }
 }
 
-export function createFeatureClient<const C extends FeatureCatalog>(options: ClientOptions<C>): FeatureClient<C> { return new FeatureClient(options); }
+export function createFeatureClient<C extends FeatureCatalog>(options: ClientOptions<C>): FeatureClient<C> { return new FeatureClient(options); }

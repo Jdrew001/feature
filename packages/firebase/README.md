@@ -1,7 +1,16 @@
 # @feature-gates/firebase
 
 Firebase Remote Config provider for the framework-independent feature client.
-Requires Firebase JavaScript SDK 13 and @feature-gates/core 0.1.
+Requires Firebase JavaScript SDK 12.3 or newer within major 12, or major 13,
+and @feature-gates/core 0.1. The compatibility checks exercise Firebase 12.19.0
+with TypeScript 4.9.5 and Firebase 13.0.0 with the workspace compiler. For an
+Angular 15 consumer, use core and this provider behind an application-owned
+service; the separate Angular adapter requires Angular 20.
+
+The SDK's browser and Node requirements are independent of the Angular adapter.
+Firebase 12.19.0 supports Node 20 for consumers that also import the SDK on their
+backend. Choose and pin the SDK version in the application; this provider does
+not initialize Firebase or upgrade the consuming application's framework.
 Angular and React use the same feature declarations and gates with either this
 provider or Harness.
 
@@ -42,7 +51,29 @@ subscription, detaches it on abort/disposal, and never deletes the supplied app.
 Use one client per Remote Config instance and avoid external fetches, activation,
 or custom-signal writes while that client is running.
 
-## Beta features in Faith Giving
+## Firebase-managed donor allowlist
+
+For an application such as Faith Giving, membership can be managed entirely in
+Firebase without adding a beta field to donor profiles:
+
+```ts
+createFirebaseProvider({
+  remoteConfig,
+  customSignals: context => ({
+    donor_id: context.targetId === 'anonymous' ? null : context.targetId,
+  }),
+});
+```
+
+Create a Boolean `beta_giving` parameter with a template default of false. In the
+Firebase console, add a custom-signal condition matching `donor_id` against the
+selected donor IDs and set its conditional value to true. The app supplies the
+signed-in donor ID through `start` and `setContext`; Firebase owns the allowlist.
+Use `setContext({ targetId: 'anonymous' })` on logout to unset the persisted ID.
+These flags control frontend release exposure; they do not authorize donations
+or protect private data.
+
+## Application-managed beta membership
 
 1. Store beta membership in your application's account/profile data or opt-in system.
 2. Create a Boolean Remote Config parameter called beta_giving with a template

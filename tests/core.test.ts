@@ -10,7 +10,7 @@ function setup(provider = new MemoryProvider({ reports: false, checkout: true })
   clients.push(client);
   return { client, provider };
 }
-afterEach(async () => { await Promise.all(clients.splice(0).map(c => c.dispose())); vi.useRealTimers(); });
+afterEach(async () => { await Promise.all(clients.splice(0).map(client => client.dispose())); vi.useRealTimers(); });
 describe('feature client', () => {
   it('accepts remote false as ready, not a failed evaluation', async () => {
     const { client } = setup(); await client.start({ targetId: 'a' });
@@ -60,11 +60,11 @@ describe('feature client', () => {
   });
   it('closes a late result from a provider that ignores abort', async () => {
     let resolveOld!: (s: ProviderSession) => void;
-    const old = { evaluate: () => ({ kind: 'value' as const, value: true, source: 'provider' as const }), subscribe: () => () => {}, close: vi.fn() };
+    const old = { evaluate: () => ({ kind: 'value' as const, value: true, source: 'provider' as const }), subscribe: () => () => undefined, close: vi.fn() };
     const memory = new MemoryProvider({ reports: false });
     const provider: FeatureProvider = { connect: (context, signal) => context.targetId === 'a' ? new Promise(resolve => { resolveOld = resolve; }) : memory.connect(context, signal) };
     const client = createFeatureClient({ catalog, provider }); clients.push(client);
-    const first = client.start({ targetId: 'a' }); void first.catch(() => {}); await flush();
+    const first = client.start({ targetId: 'a' }); first.catch(() => undefined); await flush();
     await client.setContext({ targetId: 'b' }); resolveOld(old); await flush();
     expect(old.close).toHaveBeenCalledOnce(); expect(client.getSnapshot('reports').enabled).toBe(false);
   });

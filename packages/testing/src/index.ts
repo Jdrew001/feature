@@ -37,6 +37,6 @@ export class MemoryProvider implements FeatureProvider {
       if (this.autoReady) ready(); else this.pending.set(session, ready);
     });
   }
-  ready(session: MemorySession = this.sessions.at(-1)!): void { this.pending.get(session)?.(); }
+  ready(session: MemorySession | undefined = this.sessions.at(-1)): void { if (session) this.pending.get(session)?.(); }
   get current(): MemorySession { const session = this.sessions.at(-1); if (!session) throw new Error('Provider has not connected'); return session; }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@feature-gates/core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -12,12 +12,19 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
       "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "node ../../scripts/build-dual-package.mjs"
   },
   "license": "UNLICENSED"
 }

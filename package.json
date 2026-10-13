@@ -10,11 +10,14 @@
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "build": "npm run build -w @feature-gates/core && npm run build -w @feature-gates/testing && npm run build -w @feature-gates/harness && npm run build -w @feature-gates/firebase && npm run build -w @feature-gates/react && npm run build -w @feature-gates/angular",
+    "build": "npm run build -w @feature-gates/core && npm run build -w @feature-gates/testing && npm run build -w @feature-gates/harness && npm run build -w @feature-gates/firebase && npm run build -w @feature-gates/firebase-admin && npm run build -w @feature-gates/react && npm run build -w @feature-gates/angular",
     "test": "vitest run",
-    "check": "npm run build && npm run typecheck && npm run typecheck:examples && npm test",
+    "check": "npm run build && npm run typecheck && npm run typecheck:examples && npm run typecheck:legacy && npm run test:dual-consumers && npm test && npm run test:firebase-compat",
     "typecheck:examples": "ngc -p examples/tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "typecheck:legacy": "node scripts/check-legacy-consumer.mjs",
+    "test:firebase-compat": "vitest run --config vitest.firebase-compat.config.ts",
+    "test:dual-consumers": "node scripts/check-dual-consumers.mjs"
   },
   "devDependencies": {
     "@angular/common": "20.3.33",
@@ -35,6 +38,8 @@
     "rxjs": "7.8.2",
     "typescript": "5.9.3",
     "vite": "^8.3.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "typescript-legacy": "npm:typescript@4.9.5",
+    "firebase-compat": "npm:firebase@12.19.0"
   }
 }

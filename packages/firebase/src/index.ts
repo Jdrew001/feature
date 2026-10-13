@@ -39,7 +39,7 @@ export function createFirebaseProvider(options: FirebaseProviderOptions): Featur
         const abort = () => { session.close(); reject(new Error('Connection aborted')); };
         session.onClose = () => signal.removeEventListener('abort', abort);
         signal.addEventListener('abort', abort, { once: true });
-        void session.open().then(() => resolve(session), error => { session.close(); reject(error); });
+        session.open().then(() => resolve(session), error => { session.close(); reject(error); });
         if (signal.aborted) abort();
       });
     },
@@ -47,7 +47,7 @@ export function createFirebaseProvider(options: FirebaseProviderOptions): Featur
 }
 
 class FirebaseSession implements ProviderSession {
-  onClose: () => void = () => {};
+  onClose: () => void = () => undefined;
   private readonly listeners = new Set<() => void>();
   private values = new Map<string, ProviderEvaluation>();
   private closed = false;
@@ -87,7 +87,7 @@ class FirebaseSession implements ProviderSession {
   }
 
   subscribe(listener: () => void): () => void {
-    if (this.closed) return () => {};
+    if (this.closed) return () => undefined;
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
@@ -105,7 +105,7 @@ class FirebaseSession implements ProviderSession {
   private listenForUpdates(): void {
     if (this.options.realtime === false) return;
     this.unsubscribe = this.sdk.onConfigUpdate(this.options.remoteConfig, {
-      next: () => { void this.applyUpdate(); },
+      next: () => { this.applyUpdate(); },
       error: () => this.markUnavailable(),
       complete: () => this.markUnavailable(),
     });
@@ -168,7 +168,7 @@ class FirebaseSession implements ProviderSession {
     const pending = (operations.get(remoteConfig) ?? Promise.resolve()).then(async () => {
       if (!this.closed) await operation();
     });
-    operations.set(remoteConfig, pending.catch(() => {}));
+    operations.set(remoteConfig, pending.catch(() => undefined));
     return pending;
   }
 
